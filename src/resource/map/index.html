@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="./maplibre-gl.css" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #29333a; }
+  #map { position: absolute; inset: 0; }
+  .hp-wrap { position: absolute; inset: 0; pointer-events: none; z-index: 10; font-family: "Droid Sans Fallback","Noto Sans CJK SC","Microsoft YaHei",sans-serif; display: none; }
+  .hp-glow { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #3480c8 25%, #9cc6f0 50%, #3480c8 75%, transparent); box-shadow: 0 2px 18px rgba(52,128,200,.7); z-index: 11; opacity: .95; }
+  .hp-top { position: absolute; top: 3px; left: 0; right: 0; padding: 10px 14px; background: linear-gradient(180deg, rgba(24,27,31,.94) 55%, rgba(24,27,31,.55) 80%, transparent); display: flex; align-items: center; gap: 10px; }
+  .hp-avatar { width: 38px; height: 38px; border-radius: 13px; border: 2px solid transparent; flex: none; background: linear-gradient(#1b1f24,#1b1f24) padding-box, linear-gradient(135deg,#3480c8,#8b5cf6) border-box; display: flex; align-items: center; justify-content: center; color: #9cc6f0; font-weight: 700; font-size: 16px; box-shadow: 0 0 16px rgba(52,128,200,.5); }
+  .hp-info { flex: 1; min-width: 0; }
+  .hp-name { color: #fff; font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hp-sub { color: #9a9fa6; font-size: 12px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hp-sub::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #3aa86f; margin-right: 4px; vertical-align: middle; }
+  .hp-loc { text-align: right; flex: none; max-width: 200px; }
+  .hp-city { color: #9cc6f0; font-size: 14.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 0 12px rgba(52,128,200,.6); }
+  .hp-dist { color: #65696f; font-size: 11px; margin-top: 1px; }
+  .hp-pin { position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; background: #3480c8; border: 3px solid #9cc6f0; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 0 20px rgba(52,128,200,.95), 0 0 46px rgba(52,128,200,.4); }
+  .hp-pin::after { content: ''; width: 8px; height: 8px; background: #fff; border-radius: 50%; position: absolute; top: 3px; left: 3px; }
+  .hp-bottom { position: absolute; bottom: 0; left: 0; right: 0; padding: 8px 14px; background: linear-gradient(0deg, rgba(24,27,31,.9) 55%, transparent); display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #9a9fa6; }
+  .hp-bottom b { color: #7fb4e6; font-weight: 700; }
+  .hp-near { width: 12px; height: 12px; border-radius: 50%; background: #7fb4e6; border: 2px solid #1b1f24; box-shadow: 0 0 8px rgba(127,180,230,.75); }
+  .hp-near-label { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: rgba(24,27,31,.88); border: 1px solid rgba(127,180,230,.4); color: #cfe3f7; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 7px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="hp-wrap" id="wrap">
+  <div class="hp-glow"></div>
+  <div class="hp-top">
+    <div class="hp-avatar" id="hp-avatar">?</div>
+    <div class="hp-info"><div class="hp-name" id="hp-name">-</div><div class="hp-sub" id="hp-sub"></div></div>
+    <div class="hp-loc"><div class="hp-city" id="hp-city">-</div><div class="hp-dist" id="hp-dist"></div></div>
+  </div>
+  <div class="hp-pin"></div>
+  <div class="hp-bottom"><span id="hp-near"></span><span id="hp-id"></span></div>
+</div>
+<script src="./style.js"></script>
+<script type="module">
+import * as maplibregl from './maplibre-gl.mjs'
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: window.__STYLE__,
+  center: [11, 47],
+  zoom: 6,
+  minZoom: 2,
+  maxZoom: 16,
+  renderWorldCopies: false,
+  attributionControl: false,
+  maplibreLogo: false,
+  maxPitch: 0,
+  fadeDuration: 0,
+  dragRotate: false,
+  touchPitch: false,
+})
+
+window.__ready = false
+window.__map = map
+const nearMarkers = []
+
+map.on('load', () => {
+  window.__ready = true
+})
+
+function el(id) {
+  return document.getElementById(id)
+}
+
+window.updateView = async function (data) {  el('wrap').style.display = 'block'
+  el('hp-avatar').textContent = data.info.initial
+  el('hp-name').textContent = data.info.name
+  el('hp-sub').textContent = data.info.sub
+  el('hp-city').textContent = data.info.city
+  el('hp-dist').textContent = '距市中心 ' + data.info.dist + ' km'
+  el('hp-near').innerHTML = '周边 <b>' + data.nearby.length + '</b> 人'
+  el('hp-id').textContent = 'ID ' + data.info.id + ' · HaulMP'
+
+  while (nearMarkers.length) {
+    const m = nearMarkers.pop()
+    m.remove()
+  }
+  for (const n of data.nearby) {
+    const d = document.createElement('div')
+    d.className = 'hp-near'
+    const lab = document.createElement('div')
+    lab.className = 'hp-near-label'
+    lab.textContent = n.name + (n.km != null ? ' · ' + Number(n.km).toFixed(1) + ' km' : '')
+    d.appendChild(lab)
+    nearMarkers.push(new maplibregl.Marker({ element: d }).setLngLat([n.lng, n.lat]).addTo(map))
+  }
+
+  if (data.nearby.length) {
+    const b = new maplibregl.LngLatBounds([data.lng, data.lat], [data.lng, data.lat])
+    for (const n of data.nearby) b.extend([n.lng, n.lat])
+    map.fitBounds(b, { padding: { top: 100, bottom: 80, left: 280, right: 110 }, maxZoom: 11, duration: 0 })
+  } else {
+    map.jumpTo({ center: [data.lng, data.lat], zoom: data.zoom })
+  }
+  await new Promise((res) => {
+    const t0 = performance.now()
+    const check = () => {
+      if ((map.loaded() && map.areTilesLoaded()) || performance.now() - t0 > 8000) {
+        res()
+      } else {
+        setTimeout(check, 100)
+      }
+    }
+    setTimeout(check, 60)
+  })
+  await new Promise((r) => setTimeout(r, 180))
+  return true
+}
+
+window.getTileUrl = function () {
+  const src = map.getSource('game')
+  return src && src.tiles && src.tiles[0] ? src.tiles[0] : ''
+}
+
+window.setTileUrl = function (url) {
+  const src = map.getSource('game')
+  if (src && typeof src.setTiles === 'function') {
+    src.setTiles([url])
+    return true
+  }
+  return false
+}
+</script>
+</body>
+</html>
